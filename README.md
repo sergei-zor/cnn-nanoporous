@@ -1,5 +1,6 @@
 # cnn-nanoporous
 ![image](image_header.png)
+![CI](https://github.com/sergei-zor/cnn-nanoporous/actions/workflows/ci.yml/badge.svg)
 
 ## Transferable 3D Convolutional Neural Networks for Elastic Constants Prediction in Nanoporous Metals
 
@@ -7,8 +8,12 @@ This repository contains the codebase for the paper
 
 *Transferable 3D Convolutional Neural Networks for Elastic Constants Prediction in Nanoporous Metals*
 
-by S. Zorkaltsev, R. Topolnicki, T.E. Carmon, S. Mathesan, P. Dłotko, D. Mordehai and M, Haranczyk
+by S. Zorkaltsev, R. Topolnicki, T.E. Carmon, S. Mathesan, P. Dłotko, D. Mordehai and M. Haranczyk
 
+[Mater. Des., vol. 260, p. 114896, 2025.](https://doi.org/10.1016/j.matdes.2025.114896)
+
+**Note:** This is a fork of the repository accompanying the paper. It is extended with a FastAPI service, Docker
+container, and CI pipeline.
 
 ### Nanoporous structures generation 
 Three-dimensional periodic bicontinuous nanoporous structures were generated based on the method proposed by [Soyarslan et al.](https://doi.org/10.1016/j.actamat.2018.01.005), which involves superposition of standing sinusoidal waves with fixed wavelengths and varying phase. 
@@ -106,6 +111,33 @@ exemplary_structures/3217_rot-y.npy,0.4050305
 ```
 The expected predicted Elastic Modulus values, along with the exact values obtained using MD, are available in the `expected_inference_results.csv` file.
 The R2 coefficient for these 40 exemplary structures is **0.9488**.
+
+## Serving the model (API)
+
+The same DenseNet-201 model is also available as an API, integrating the model inference into other applications without a local Python setup.
+
+### Run locally
+```
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+Check the API state at `http://localhost:8000/health`, and make a prediction with:
+```
+curl -X POST -F "file=@exemplary_structures/155_rot-z.npy" http://localhost:8000/predict
+```
+
+### Run as a Docker container
+```
+docker build -t nanoporous-api .
+docker run -p 8000:8000 nanoporous-api
+```
+
+### API endpoints
+- `GET /health` - service and model status
+- `POST /predict` - takes a `.npy` voxelized structure, returns the predicted elastic modulus
+
+A GitHub Actions workflow builds and verifies on every push (`.github/workflows/ci.yml`).
 
 ## License
 
