@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t nanoporous-api .
+
+      - name: Run container
+        run: docker run -d -p 8000:8000 --name test-container nanoporous-api
+
+      - name: Wait for API to be ready
+        run: |
+          for i in {1..10}; do
+            if curl -sf http://localhost:8000/health; then
+              echo "API is up"
+              exit 0
+            fi
+            echo "Waiting for API"
+            sleep 3
+          done
+          echo "API was not initialized in time"
+          docker logs test-container
+          exit 1
+
+      - name: Prediction check
+        run: |
+          curl -sf -X POST -F "file=@exemplary_structures/155_rot-z.npy" http://localhost:8000/predict | tee prediction.json
+          python3 -c "
+          import json
+          with open('prediction.json') as f:
+              result = json.load(f)
+          pred = result['prediction']
+          expected = 0.92881143
+          assert abs(pred - expected) < 0.01, f'Prediction {pred} deviates from expected {expected}'
+          print('Prediction matches the expected value')
+          "
+
+      - name: Logs
+        if: failure()
+        run: docker logs test-container
