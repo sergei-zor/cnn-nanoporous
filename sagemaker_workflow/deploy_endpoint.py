@@ -50,7 +50,8 @@ def main():
     print(f"Deploying {model_data}")
     model.deploy(
         endpoint_name=ENDPOINT_NAME,
-        serverless_inference_config=ServerlessInferenceConfig(memory_size_in_mb=6144, max_concurrency=1),
+        # the API uses ~700 MB, 3072 MB is the default limit of new accounts
+        serverless_inference_config=ServerlessInferenceConfig(memory_size_in_mb=3072, max_concurrency=1),
         tags=[{"Key": "project", "Value": "nanoporous"}],
     )
     print(f"Endpoint {ENDPOINT_NAME} is ready")
