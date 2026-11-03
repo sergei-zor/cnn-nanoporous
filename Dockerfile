@@ -13,6 +13,11 @@ COPY generate_model.py .
 COPY utils.py .
 COPY data.py .
 COPY models/ models/
+COPY sagemaker_workflow/serving.py sagemaker_workflow/serving.py
+
+# SageMaker endpoints 
+RUN printf '#!/bin/sh\nexec uvicorn sagemaker_workflow.serving:app --host 0.0.0.0 --port 8080\n' > /usr/local/bin/serve \
+    && chmod +x /usr/local/bin/serve
 
 EXPOSE 8000
 

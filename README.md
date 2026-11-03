@@ -139,6 +139,13 @@ docker run -p 8000:8000 nanoporous-api
 
 A GitHub Actions workflow builds and verifies on every push (`.github/workflows/ci.yml`).
 
+## Training and serving on AWS SageMaker
+
+[`sagemaker_workflow/`](sagemaker_workflow/README.md) runs the workflow on Amazon SageMaker: training data generation in
+Processing jobs, GPU training with spot instances and checkpointing (Dataset 1, fold 0: test R2 0.961) and an
+endpoint that serves API container image. `.github/workflows/push-image.yml` builds, tests and pushes that image
+to Amazon ECR on every push to `master`.
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

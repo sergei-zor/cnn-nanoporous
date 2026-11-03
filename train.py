@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -21,7 +22,7 @@ from data import (
     get_npy_shape,
 )
 from torch.utils.tensorboard import SummaryWriter
-from validation import validate_one_epoch
+from validation import validate_one_epoch, summarize_predictions
 
 
 def check_npy_cubic_and_equalsize(df: pd.DataFrame) -> int:
@@ -78,7 +79,21 @@ def parse_command_line_args():
     parser.add_argument("--use_pca", action="store_true")
     parser.add_argument("--scale_only", action="store_true")
     parser.add_argument("--n_limit", type=int, default=0)
+    parser.add_argument(
+        "--skip_train_eval",
+        action="store_true",
+        help="Report train metrics from the training pass instead of re-evaluating the whole train set every epoch",
+    )
+    parser.add_argument(
+        "--checkpoint_dir", type=str, default="", help="Save a checkpoint every epoch here and resume from it if present"
+    )
     return vars(parser.parse_args())
+
+
+def save_checkpoint(state, path):
+    """Writes to a temporary file first, so an interruption never leaves a half-written checkpoint behind."""
+    torch.save(state, path + ".tmp")
+    os.replace(path + ".tmp", path)
 
 
 def main():
@@ -111,6 +126,8 @@ def main():
     use_pca = args["use_pca"]
     scale_only = args["scale_only"]
     n_limit = args["n_limit"]
+    skip_train_eval = args["skip_train_eval"]
+    checkpoint_dir = args["checkpoint_dir"]
     pca_n_components = fc_first_size[0]
 
     # set seed
@@ -206,9 +223,38 @@ def main():
         history = []
         writer = SummaryWriter(os.path.join(experiment_path, "tensorboard"))
         early_stopper = EarlyStopper(patience=10, model_path=model_path)
-        for epoch in range(n_epochs):
+
+        start_epoch = 0
+        finished = False
+        if checkpoint_dir:
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            checkpoint_path = os.path.join(checkpoint_dir, f"fold_{fold_id}_checkpoint.pth")
+            best_model_checkpoint_path = os.path.join(checkpoint_dir, f"fold_{fold_id}_best_model.pth")
+            if os.path.exists(checkpoint_path):
+                checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+                model.load_state_dict(checkpoint["model"])
+                optimizer.load_state_dict(checkpoint["optimizer"])
+                early_stopper.counter = checkpoint["early_stopper_counter"]
+                early_stopper.min_validation_loss = checkpoint["min_validation_loss"]
+                # load_state_dict restored the old learning rate; a new --lr wins and gets the full patience
+                if optimizer.param_groups[0]["lr"] != learning_rate:
+                    print(f"Fold {fold_id}: learning rate {optimizer.param_groups[0]['lr']} -> {learning_rate}")
+                    for param_group in optimizer.param_groups:
+                        param_group["lr"] = learning_rate
+                    early_stopper.counter = 0
+                history = checkpoint["history"]
+                trainloss, valloss, testloss = checkpoint["last_losses"]
+                epoch = checkpoint["epoch"]
+                finished = checkpoint["finished"]
+                start_epoch = epoch + 1
+                shutil.copy(best_model_checkpoint_path, model_path)
+                print(f"Fold {fold_id}: resumed from checkpoint after epoch {epoch}, finished={finished}")
+
+        for epoch in range(start_epoch, start_epoch if finished else n_epochs):
             running_loss = 0
             running_count = 0
+            train_predictions = []
+            train_targets = []
             for data in tqdm(trainloader, desc="Train"):
                 inputs = data[0].to(device)
                 targets = data[1].to(device)
@@ -226,18 +272,31 @@ def main():
                 optimizer.step()
                 running_loss += loss.item()
                 running_count += len(data)
+                train_predictions += y_pred.detach().cpu()[:, 0].tolist()
+                train_targets += targets.cpu().tolist()
             totalloss = running_loss / running_count
 
-            trainloss = validate_one_epoch(
-                model=model,
-                dataloader=trainloader,
-                loss_function=loss_fn,
-                device=device,
-                use_descriptors=use_descriptors,
-                writer=writer,
-                dataloadertype="train",
-                epoch=epoch,
-            )
+            if skip_train_eval:
+                # metrics of the training pass itself: weights change during the epoch, augmentation and dropout are on
+                trainloss = summarize_predictions(
+                    train_targets,
+                    train_predictions,
+                    running_loss / len(train_targets),
+                    writer=writer,
+                    dataloadertype="train",
+                    epoch=epoch,
+                )
+            else:
+                trainloss = validate_one_epoch(
+                    model=model,
+                    dataloader=trainloader,
+                    loss_function=loss_fn,
+                    device=device,
+                    use_descriptors=use_descriptors,
+                    writer=writer,
+                    dataloadertype="train",
+                    epoch=epoch,
+                )
             valloss = validate_one_epoch(
                 model=model,
                 dataloader=valloader,
@@ -262,7 +321,22 @@ def main():
             print(
                 f'Fold {fold_id} Ep {epoch}: train runningloss={totalloss} loss={trainloss["loss"]:.4f} mse={trainloss["mse"]:.4f} r2={trainloss["r2"]:.4f} val loss={valloss["loss"]:.4f} r2={valloss["r2"]:.4f} bestloss: {early_stopper.min_validation_loss:4f} counter={early_stopper.counter} test loss={testloss["loss"]:.4f} r2={testloss["r2"]:.4f}'
             )
-            if early_stopper.early_stop(valloss["loss"], model=model):
+            stop = early_stopper.early_stop(valloss["loss"], model=model)
+            if checkpoint_dir:
+                if early_stopper.counter == 0:  # early_stop just saved a new best model
+                    shutil.copy(model_path, best_model_checkpoint_path)
+                checkpoint = {
+                    "epoch": epoch,
+                    "finished": stop,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "early_stopper_counter": early_stopper.counter,
+                    "min_validation_loss": early_stopper.min_validation_loss,
+                    "history": history,
+                    "last_losses": (trainloss, valloss, testloss),
+                }
+                save_checkpoint(checkpoint, checkpoint_path)
+            if stop:
                 print("Break due to early stopping")
                 break
         save_to_pickle(history, os.path.join(experiment_path, "history.pickle"))

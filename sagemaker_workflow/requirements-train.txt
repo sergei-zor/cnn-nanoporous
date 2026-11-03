@@ -1,0 +1,5 @@
+# installed on top of the AWS PyTorch container, which already has torch and torchvision
+pandas
+scikit-learn
+tqdm
+tensorboard
