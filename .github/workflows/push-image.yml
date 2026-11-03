@@ -22,7 +22,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t nanoporous-api .
+        # SageMaker accepts a single image only, without the build attestations Docker adds by default
+        run: docker build --provenance=false --sbom=false -t nanoporous-api .
 
       - name: Check SageMaker serving mode
         run: |
