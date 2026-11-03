@@ -5,3 +5,5 @@ venv/
 .venv/
 datasets/
 mlruns/
+sagemaker_artifacts/
+tensorboard_logs/

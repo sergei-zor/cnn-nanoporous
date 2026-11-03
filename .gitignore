@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+# SageMaker job outputs downloaded from S3 (model.tar.gz alone is ~190 MB)
+sagemaker_artifacts/
+tensorboard_logs/

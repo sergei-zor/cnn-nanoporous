@@ -41,20 +41,26 @@ def validate_one_epoch(
             targets += target.cpu().detach().tolist()
     model.train()
     allpredictions = np.array(allpredictions)[:, 0]
-    targets = np.array(targets)
     loss = (running_loss / running_count).detach().cpu().item()
+    return summarize_predictions(targets, allpredictions, loss, allpaths, writer, dataloadertype, epoch)
+
+
+def summarize_predictions(targets, allpredictions, loss, allpaths=None, writer=None, dataloadertype="train", epoch=0):
+    targets = np.array(targets)
+    allpredictions = np.array(allpredictions)
+    allpaths = allpaths if allpaths is not None else []
     try:
         _r2 = r2_score(targets, allpredictions)
     except:
-        _r2 = np.NaN
+        _r2 = np.nan
     try:
         _mse = mean_squared_error(targets, allpredictions)
         _mape = mean_absolute_percentage_error(targets, allpredictions)
         _mae = mean_absolute_error(targets, allpredictions)
     except:
-        _mse = np.NaN
-        _mape = np.NaN
-        _mae = np.NaN
+        _mse = np.nan
+        _mape = np.nan
+        _mae = np.nan
     output = {
         "loss": loss,
         "mse": _mse,
